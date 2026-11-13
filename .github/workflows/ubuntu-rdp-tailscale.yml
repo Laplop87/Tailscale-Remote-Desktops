@@ -15,25 +15,47 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Install XFCE, xrdp, and configure session
+      - name: Install XFCE, xrdp, and configure RDP user
         run: |
           sudo apt-get update
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
-          echo "startxfce4" > ~/.xsession
-          chmod +x ~/.xsession
+
+          # Create a dedicated RDP user (runner user can have PAM restrictions)
+          sudo useradd -m -s /bin/bash rdpuser
+          echo "rdpuser:UbuntuRDP2025" | sudo chpasswd
+          sudo adduser rdpuser sudo
+
+          # Set .xsession for the RDP user
+          echo "startxfce4" | sudo tee /home/rdpuser/.xsession
+          sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+          sudo chmod +x /home/rdpuser/.xsession
+
+          # Patch startwm.sh to bypass Xsession checks (common xrdp black-screen/bounce-back fix)
+          sudo sed -i 's/^test -x \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
+          sudo sed -i 's/^\. \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
+
+          # Force startwm.sh to launch XFCE
+          sudo grep -q "^startxfce4" /etc/xrdp/startwm.sh || echo "startxfce4" | sudo tee -a /etc/xrdp/startwm.sh
+
+          # xrdp needs ssl-cert group for TLS auth
           sudo adduser xrdp ssl-cert
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
 
-      - name: Set RDP Password
+      - name: Verify user and xrdp status
         run: |
-          echo "runner:UbuntuRDP2025" | sudo chpasswd
+          echo "--- Password status ---"
+          sudo passwd -S rdpuser
+          echo "--- xrdp service ---"
+          sudo systemctl status xrdp --no-pager || true
+          echo "--- Listening ports ---"
+          sudo ss -tlnp | grep 3389 || true
 
       - name: Display Connection Details
         run: |
           echo "================ RDP IS READY ================"
           echo "IP Address: $(tailscale ip -4)"
-          echo "Username  : runner"
+          echo "Username  : rdpuser"
           echo "Password  : UbuntuRDP2025"
           echo "=============================================="
 
