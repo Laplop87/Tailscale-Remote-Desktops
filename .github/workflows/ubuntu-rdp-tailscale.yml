@@ -15,28 +15,25 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Install XFCE, xrdp, and Tailscale
+      - name: Install XFCE, xrdp, and configure session
         run: |
           sudo apt-get update
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
-          echo "xfce4-session" > ~/.xsession
-          sudo cp ~/.xsession /home/runner/.xsession
-          sudo chown runner:runner /home/runner/.xsession
+
+          # Create the .xsession file (the file was being copied onto itself before)
+          echo "startxfce4" > ~/.xsession
+          chmod +x ~/.xsession
+
+          # Allow xrdp to read SSL certs for proper auth
+          sudo adduser xrdp ssl-cert
+
+          # Enable and start xrdp
           sudo systemctl enable xrdp
-          sudo systemctl start xrdp
-          sudo ufw allow 3389/tcp || true
+          sudo systemctl restart xrdp
 
       - name: Set RDP Password
         run: |
-          sudo apt-get install -y expect
-          expect -c '
-            spawn sudo passwd runner
-            expect "New password:"
-            send "UbuntuRDP#2025\r"
-            expect "Retype new password:"
-            send "UbuntuRDP#2025\r"
-            expect eof
-          '
+          echo "runner:UbuntuRDP#2025" | sudo chpasswd
 
       - name: Display Connection Details
         run: |
