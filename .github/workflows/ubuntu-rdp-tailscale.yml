@@ -25,11 +25,13 @@ jobs:
           echo "vncuser:vnc2025" | sudo chpasswd
           sudo adduser vncuser sudo
 
-          # Create .vnc directory AS vncuser (this was the "Permission denied")
-          sudo -u vncuser mkdir -p /home/vncuser/.vnc
+          # Create BOTH ~/.vnc and ~/.config as vncuser
+          # ~/.vnc holds the legacy config; ~/.config is the migration target
+          sudo -H -u vncuser mkdir -p /home/vncuser/.vnc
+          sudo -H -u vncuser mkdir -p /home/vncuser/.config
 
           # VNC password (max 8 chars — TigerVNC truncates silently beyond this)
-          echo "vnc2025" | sudo -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.vnc/passwd'
+          echo "vnc2025" | sudo -H -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.vnc/passwd'
           sudo chmod 600 /home/vncuser/.vnc/passwd
           sudo chown vncuser:vncuser /home/vncuser/.vnc/passwd
 
@@ -45,10 +47,11 @@ jobs:
 
       - name: Start VNC Server
         run: |
-          sudo -u vncuser vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+          # -H forces $HOME=/home/vncuser so migration targets the right path
+          sudo -H -u vncuser vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
           sleep 5
           echo "--- VNC server list ---"
-          sudo -u vncuser vncserver -list
+          sudo -H -u vncuser vncserver -list
 
       - name: Display Connection Details
         run: |
