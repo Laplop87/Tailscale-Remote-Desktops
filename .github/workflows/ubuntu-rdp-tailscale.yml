@@ -1,0 +1,50 @@
+name: Pure Ubuntu RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-rdp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+      - name: Install XFCE, xrdp, and Tailscale
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          echo "xfce4-session" > ~/.xsession
+          sudo cp ~/.xsession /home/runner/.xsession
+          sudo chown runner:runner /home/runner/.xsession
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          sudo ufw allow 3389/tcp || true
+
+      - name: Set RDP Password
+        run: |
+          sudo apt-get install -y expect
+          expect -c '
+            spawn sudo passwd runner
+            expect "New password:"
+            send "UbuntuRDP#2025\r"
+            expect "Retype new password:"
+            send "UbuntuRDP#2025\r"
+            expect eof
+          '
+
+      - name: Display Connection Details
+        run: |
+          echo "================ RDP IS READY ================"
+          echo "IP Address: $(tailscale ip -4)"
+          echo "Username  : runner"
+          echo "Password  : UbuntuRDP#2025"
+          echo "=============================================="
+
+      - name: Keep Alive
+        run: sleep 21600 # 6 hours
