@@ -1,10 +1,10 @@
-name: Pure Ubuntu RDP via Tailscale
+name: Pure Ubuntu VNC via Tailscale
 
 on:
   workflow_dispatch:
 
 jobs:
-  ubuntu-rdp:
+  ubuntu-vnc:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -15,55 +15,45 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Install XFCE, xrdp, and configure RDP user
+      - name: Install XFCE, TigerVNC, and configure VNC user
         run: |
           sudo apt-get update
-          # dbus-x11 is essential for XFCE to start inside an xrdp session
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
+          # Install XFCE desktop and the TigerVNC server
+          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common
 
-          # Create a dedicated RDP user (runner user can have PAM restrictions)
-          sudo useradd -m -s /bin/bash rdpuser
-          echo "rdpuser:UbuntuRDP2025" | sudo chpasswd
-          sudo adduser rdpuser sudo
+          # Create a dedicated user for the VNC session
+          sudo useradd -m -s /bin/bash vncuser
+          echo "vncuser:UbuntuVNC2025" | sudo chpasswd
+          sudo adduser vncuser sudo
 
-          # Set .xsession for the RDP user
-          echo "startxfce4" | sudo tee /home/rdpuser/.xsession
-          sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
-          sudo chmod +x /home/rdpuser/.xsession
+          # Set up the VNC password (must be 6-8 characters)
+          mkdir -p /home/vncuser/.vnc
+          echo "UbuntuVNC2025" | vncpasswd -f > /home/vncuser/.vnc/passwd
+          chmod 600 /home/vncuser/.vnc/passwd
+          chown -R vncuser:vncuser /home/vncuser/.vnc
 
-          # Patch startwm.sh to bypass Xsession checks (common xrdp black-screen fix)
-          sudo sed -i 's/^test -x \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
-          sudo sed -i 's/^\. \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
+          # Create the xstartup script to launch XFCE
+          cat > /home/vncuser/.vnc/xstartup << 'EOF'
+          #!/bin/sh
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec startxfce4
+          EOF
+          chmod +x /home/vncuser/.vnc/xstartup
+          chown vncuser:vncuser /home/vncuser/.vnc/xstartup
 
-          # Unset DBUS_SESSION_BUS_ADDRESS to avoid inheriting a stale bus address
-          sudo sed -i '1i unset DBUS_SESSION_BUS_ADDRESS' /etc/xrdp/startwm.sh
-
-          # Launch XFCE through a fresh dbus session (fixes black screen reliably)
-          sudo grep -q "dbus-run-session -- startxfce4" /etc/xrdp/startwm.sh || \
-            echo "exec dbus-run-session -- startxfce4" | sudo tee -a /etc/xrdp/startwm.sh
-
-          # xrdp needs ssl-cert group for TLS auth
-          sudo adduser xrdp ssl-cert
-          sudo systemctl enable xrdp
-          sudo systemctl restart xrdp
-
-      - name: Verify user and xrdp status
+      - name: Start VNC Server
         run: |
-          echo "--- Password status (must show 'P', not 'L') ---"
-          sudo passwd -S rdpuser
-          echo "--- xrdp service ---"
-          sudo systemctl status xrdp --no-pager || true
-          echo "--- Listening ports ---"
-          sudo ss -tlnp | grep 3389 || true
-          echo "--- startwm.sh tail (should end with dbus-run-session line) ---"
-          sudo tail -n 10 /etc/xrdp/startwm.sh
+          # Start TigerVNC on display :1 (which listens on port 5901)
+          # Use -localhost no to allow connections from the Tailscale network
+          sudo -u vncuser vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
 
       - name: Display Connection Details
         run: |
-          echo "================ RDP IS READY ================"
+          echo "================ VNC IS READY ================"
           echo "IP Address: $(tailscale ip -4)"
-          echo "Username  : rdpuser"
-          echo "Password  : UbuntuRDP2025"
+          echo "Port      : 5901"
+          echo "Password  : UbuntuVNC2025"
           echo "=============================================="
 
       - name: Keep Alive
