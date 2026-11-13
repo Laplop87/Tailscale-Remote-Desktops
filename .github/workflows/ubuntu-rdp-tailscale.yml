@@ -18,42 +18,45 @@ jobs:
       - name: Install XFCE, TigerVNC, and configure VNC user
         run: |
           sudo apt-get update
-          # Install XFCE desktop and the TigerVNC server
           sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common
 
-          # Create a dedicated user for the VNC session
+          # Create dedicated VNC user
           sudo useradd -m -s /bin/bash vncuser
-          echo "vncuser:UbuntuVNC2025" | sudo chpasswd
+          echo "vncuser:vnc2025" | sudo chpasswd
           sudo adduser vncuser sudo
 
-          # Set up the VNC password (must be 6-8 characters)
-          mkdir -p /home/vncuser/.vnc
-          echo "UbuntuVNC2025" | vncpasswd -f > /home/vncuser/.vnc/passwd
-          chmod 600 /home/vncuser/.vnc/passwd
-          chown -R vncuser:vncuser /home/vncuser/.vnc
+          # Create .vnc directory AS vncuser (this was the "Permission denied")
+          sudo -u vncuser mkdir -p /home/vncuser/.vnc
 
-          # Create the xstartup script to launch XFCE
-          cat > /home/vncuser/.vnc/xstartup << 'EOF'
+          # VNC password (max 8 chars — TigerVNC truncates silently beyond this)
+          echo "vnc2025" | sudo -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.vnc/passwd'
+          sudo chmod 600 /home/vncuser/.vnc/passwd
+          sudo chown vncuser:vncuser /home/vncuser/.vnc/passwd
+
+          # xstartup that launches XFCE cleanly
+          sudo tee /home/vncuser/.vnc/xstartup > /dev/null << 'EOF'
           #!/bin/sh
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
           exec startxfce4
           EOF
-          chmod +x /home/vncuser/.vnc/xstartup
-          chown vncuser:vncuser /home/vncuser/.vnc/xstartup
+          sudo chmod +x /home/vncuser/.vnc/xstartup
+          sudo chown vncuser:vncuser /home/vncuser/.vnc/xstartup
 
       - name: Start VNC Server
         run: |
-          # Start TigerVNC on display :1 (which listens on port 5901)
-          # Use -localhost no to allow connections from the Tailscale network
           sudo -u vncuser vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+          sleep 5
+          echo "--- VNC server list ---"
+          sudo -u vncuser vncserver -list
 
       - name: Display Connection Details
         run: |
           echo "================ VNC IS READY ================"
-          echo "IP Address: $(tailscale ip -4)"
-          echo "Port      : 5901"
-          echo "Password  : UbuntuVNC2025"
+          echo "IP Address : $(tailscale ip -4)"
+          echo "Port       : 5901"
+          echo "Password   : vnc2025"
+          echo "Note: VNC passwords are limited to 8 characters"
           echo "=============================================="
 
       - name: Keep Alive
