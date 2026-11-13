@@ -1,4 +1,4 @@
-name: macOS VNC via Tailscale (Runner Auth)
+name: macOS VNC via Tailscale
 
 on:
   workflow_dispatch:
@@ -15,31 +15,30 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Configure VNC Server and Display Connection Details
+      - name: Configure VNC and set runner password
         run: |
           # Enable Screen Sharing (VNC)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -restart -agent -privs -all
 
-          # Decode the auto-login password for the 'runner' user
-          # The password is XORed with a fixed 11-byte key in /etc/kcpassword
-          RUNNER_PASS=$(sudo perl -we '
-            BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA" }; 
-            open(my $fh, "<", "/etc/kcpassword") or die "Cannot open kcpassword: $!";
-            binmode($fh);
-            local $/; my $data = <$fh>; close($fh);
-            my @p = unpack("C*", $data);
-            foreach (@p) { last if $_ == 0; printf "%c", $_ ^ (shift @k || 0); }
-          ')
-          
+          # Give runner remote control privileges explicitly
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -users runner -access -on -privs -all
+
+          # Set a KNOWN password for the runner user (console owner)
+          sudo dscl . -passwd /Users/runner "VncMac2025"
+
+          # Verify Screen Sharing is listening
+          sudo lsof -iTCP:5900 -sTCP:LISTEN || true
+
           echo "================ VNC IS READY ================"
           echo "IP Address : $(tailscale ip -4)"
           echo "Port       : 5900"
           echo "Username   : runner"
-          echo "Password   : $RUNNER_PASS"
+          echo "Password   : VncMac2025"
           echo "=============================================="
           echo ""
-          echo "⚠️ The screen may be black due to the headless runner. Input will still work."
+          echo "⚠️ If you get a black screen, that's the headless-runner TCC issue."
 
       - name: Keep Alive
         run: sleep 21600
