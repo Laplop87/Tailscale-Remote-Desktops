@@ -18,7 +18,8 @@ jobs:
       - name: Install XFCE, xrdp, and configure RDP user
         run: |
           sudo apt-get update
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          # dbus-x11 is essential for XFCE to start inside an xrdp session
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
 
           # Create a dedicated RDP user (runner user can have PAM restrictions)
           sudo useradd -m -s /bin/bash rdpuser
@@ -30,12 +31,16 @@ jobs:
           sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
           sudo chmod +x /home/rdpuser/.xsession
 
-          # Patch startwm.sh to bypass Xsession checks (common xrdp black-screen/bounce-back fix)
+          # Patch startwm.sh to bypass Xsession checks (common xrdp black-screen fix)
           sudo sed -i 's/^test -x \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
           sudo sed -i 's/^\. \/etc\/X11\/Xsession/##&/' /etc/xrdp/startwm.sh
 
-          # Force startwm.sh to launch XFCE
-          sudo grep -q "^startxfce4" /etc/xrdp/startwm.sh || echo "startxfce4" | sudo tee -a /etc/xrdp/startwm.sh
+          # Unset DBUS_SESSION_BUS_ADDRESS to avoid inheriting a stale bus address
+          sudo sed -i '1i unset DBUS_SESSION_BUS_ADDRESS' /etc/xrdp/startwm.sh
+
+          # Launch XFCE through a fresh dbus session (fixes black screen reliably)
+          sudo grep -q "dbus-run-session -- startxfce4" /etc/xrdp/startwm.sh || \
+            echo "exec dbus-run-session -- startxfce4" | sudo tee -a /etc/xrdp/startwm.sh
 
           # xrdp needs ssl-cert group for TLS auth
           sudo adduser xrdp ssl-cert
@@ -44,12 +49,14 @@ jobs:
 
       - name: Verify user and xrdp status
         run: |
-          echo "--- Password status ---"
+          echo "--- Password status (must show 'P', not 'L') ---"
           sudo passwd -S rdpuser
           echo "--- xrdp service ---"
           sudo systemctl status xrdp --no-pager || true
           echo "--- Listening ports ---"
           sudo ss -tlnp | grep 3389 || true
+          echo "--- startwm.sh tail (should end with dbus-run-session line) ---"
+          sudo tail -n 10 /etc/xrdp/startwm.sh
 
       - name: Display Connection Details
         run: |
