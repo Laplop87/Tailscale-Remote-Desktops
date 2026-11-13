@@ -19,28 +19,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
-
-          # Create the .xsession file (the file was being copied onto itself before)
           echo "startxfce4" > ~/.xsession
           chmod +x ~/.xsession
-
-          # Allow xrdp to read SSL certs for proper auth
           sudo adduser xrdp ssl-cert
-
-          # Enable and start xrdp
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
 
       - name: Set RDP Password
         run: |
-          echo "runner:UbuntuRDP#2025" | sudo chpasswd
+          echo "runner:UbuntuRDP2025" | sudo chpasswd
 
       - name: Display Connection Details
         run: |
           echo "================ RDP IS READY ================"
           echo "IP Address: $(tailscale ip -4)"
           echo "Username  : runner"
-          echo "Password  : UbuntuRDP#2025"
+          echo "Password  : UbuntuRDP2025"
           echo "=============================================="
 
       - name: Keep Alive
