@@ -1,4 +1,4 @@
-name: macOS VNC via Tailscale
+name: macOS VNC via Tailscale (Runner Auth)
 
 on:
   workflow_dispatch:
@@ -15,52 +15,31 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Configure VNC Server and User
+      - name: Configure VNC Server and Display Connection Details
         run: |
-          # Disable Spotlight indexing to reduce resource usage
-          sudo mdutil -i off -a
-
-          # Create a dedicated VNC user account
-          sudo dscl . -create /Users/vncuser
-          sudo dscl . -create /Users/vncuser UserShell /bin/bash
-          sudo dscl . -create /Users/vncuser RealName "VNC User"
-          sudo dscl . -create /Users/vncuser UniqueID 1001
-          sudo dscl . -create /Users/vncuser PrimaryGroupID 80
-          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          sudo dscl . -passwd /Users/vncuser ${{ secrets.VNC_USER_PASSWORD }}
-          sudo createhomedir -c -u vncuser > /dev/null
-
-          # Enable Screen Sharing (VNC) for all users
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -allowAccessFor -allUsers -privs -all
+          # Enable Screen Sharing (VNC)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -restart -agent -privs -all
 
-          # Set the legacy VNC-only password (for RealVNC Viewer when it asks only for a password)
-          echo ${{ secrets.VNC_PASSWORD }} | perl -we '
-            BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"}; 
-            $_ = <>; chomp; s/^(.{8}).*/$1/; 
-            @p = unpack "C*", $_; 
-            foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; 
-            print "\n"
-          ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt
-
-      - name: Verify VNC is listening
-        run: |
-          # macOS Screen Sharing listens on port 5900
-          sudo lsof -iTCP:5900 -sTCP:LISTEN || echo "VNC not listening yet — ARD may need a moment"
-
-      - name: Display Connection Details
-        run: |
+          # Decode the auto-login password for the 'runner' user
+          # The password is XORed with a fixed 11-byte key in /etc/kcpassword
+          RUNNER_PASS=$(sudo perl -we '
+            BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA" }; 
+            open(my $fh, "<", "/etc/kcpassword") or die "Cannot open kcpassword: $!";
+            binmode($fh);
+            local $/; my $data = <$fh>; close($fh);
+            my @p = unpack("C*", $data);
+            foreach (@p) { last if $_ == 0; printf "%c", $_ ^ (shift @k || 0); }
+          ')
+          
           echo "================ VNC IS READY ================"
           echo "IP Address : $(tailscale ip -4)"
           echo "Port       : 5900"
-          echo "Username   : vncuser (or leave blank if only password is asked)"
-          echo "Password   : use VNC_USER_PASSWORD or VNC_PASSWORD secret"
+          echo "Username   : runner"
+          echo "Password   : $RUNNER_PASS"
           echo "=============================================="
+          echo ""
+          echo "⚠️ The screen may be black due to the headless runner. Input will still work."
 
-      - name: Prevent Display Sleep (Anti-Black Screen)
-        run: |
-          # Keep the virtual display awake for the duration of the session
-          caffeinate -d &
-          sleep 21600
+      - name: Keep Alive
+        run: sleep 21600
