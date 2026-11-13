@@ -15,30 +15,43 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Configure VNC and set runner password
+      - name: Configure VNC and decode runner password
         run: |
-          # Enable Screen Sharing (VNC)
+          # Enable Screen Sharing (VNC) – this is all that's needed; port 5900 is socket-activated
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -restart -agent -privs -all
 
-          # Give runner remote control privileges explicitly
+          # Give runner remote control privileges
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -users runner -access -on -privs -all
 
-          # Set a KNOWN password for the runner user (console owner)
-          sudo dscl . -passwd /Users/runner "VncMac2025"
-
-          # Verify Screen Sharing is listening
-          sudo lsof -iTCP:5900 -sTCP:LISTEN || true
+          # Decode the auto-login password from /etc/kcpassword
+          # XOR key: 7D 89 52 23 D2 BC DD EA A3 B9 1F
+          RUNNER_PASS=$(sudo ruby -e '
+            key = [0x7D, 0x89, 0x52, 0x23, 0xD2, 0xBC, 0xDD, 0xEA, 0xA3, 0xB9, 0x1F]
+            data = File.binread("/etc/kcpassword")
+            pass = ""
+            data.bytes.each_with_index do |b, i|
+              break if b == 0
+              pass << (b ^ key[i % key.length]).chr
+            end
+            # Only print if the result is printable ASCII (sanity check)
+            if pass.match?(/\A[[:print:]]+\z/)
+              puts pass
+            else
+              puts "DECODE_FAILED"
+            end
+          ')
 
           echo "================ VNC IS READY ================"
           echo "IP Address : $(tailscale ip -4)"
           echo "Port       : 5900"
           echo "Username   : runner"
-          echo "Password   : VncMac2025"
+          echo "Password   : $RUNNER_PASS"
           echo "=============================================="
           echo ""
-          echo "⚠️ If you get a black screen, that's the headless-runner TCC issue."
+          echo "⚠️ If you see DECODE_FAILED, the kcpassword format is non-standard."
+          echo "⚠️ The screen will be BLACK (headless runner), but input works."
 
       - name: Keep Alive
         run: sleep 21600
