@@ -1,5 +1,3 @@
-Here's the rewritten README that covers both working options cleanly. Replace the contents of `README.md` in your repo with this:
-
 ```markdown
 # 🖥️ Remote Desktops via Tailscale on GitHub Actions ☁️
 
