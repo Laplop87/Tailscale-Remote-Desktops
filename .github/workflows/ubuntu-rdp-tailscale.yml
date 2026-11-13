@@ -15,38 +15,42 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
-      - name: Install XFCE, TigerVNC, and configure VNC user
+      - name: Install XFCE, TigerVNC, dbus-x11, and configure VNC user
         run: |
           sudo apt-get update
-          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common
+          # dbus-x11 provides dbus-launch, which is essential for XFCE under VNC
+          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common dbus-x11
 
           # Create dedicated VNC user
           sudo useradd -m -s /bin/bash vncuser
           echo "vncuser:vnc2025" | sudo chpasswd
           sudo adduser vncuser sudo
 
-          # Do NOT create ~/.vnc – prevents the migration script from firing.
-          # Create the modern XDG path instead.
+          # Pre-create the config directory (migration target)
           sudo -H -u vncuser mkdir -p /home/vncuser/.config/tigervnc
 
-          # VNC password (max 8 chars) – write directly to XDG path
+          # VNC password (max 8 chars)
           echo "vnc2025" | sudo -H -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.config/tigervnc/passwd'
           sudo chmod 600 /home/vncuser/.config/tigervnc/passwd
           sudo chown vncuser:vncuser /home/vncuser/.config/tigervnc/passwd
 
-          # xstartup – also in XDG path
-          sudo tee /home/vncuser/.config/tigervnc/xstartup > /dev/null << 'EOF'
+          # Create ~/.vnc/xstartup (traditional path TigerVNC reads first)
+          sudo -H -u vncuser mkdir -p /home/vncuser/.vnc
+          sudo tee /home/vncuser/.vnc/xstartup > /dev/null << 'EOF'
           #!/bin/sh
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          exec startxfce4
+          # Set runtime dir for dbus/pulseaudio
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          [ -d "$XDG_RUNTIME_DIR" ] || install -d -m 700 "$XDG_RUNTIME_DIR"
+          # Launch XFCE within a proper dbus session
+          exec dbus-launch --exit-with-session startxfce4
           EOF
-          sudo chmod +x /home/vncuser/.config/tigervnc/xstartup
-          sudo chown vncuser:vncuser /home/vncuser/.config/tigervnc/xstartup
+          sudo chmod +x /home/vncuser/.vnc/xstartup
+          sudo chown vncuser:vncuser /home/vncuser/.vnc/xstartup
 
       - name: Start VNC Server
         run: |
-          # Run as vncuser in a shell that explicitly sets HOME and XDG_CONFIG_HOME
           sudo -u vncuser bash -c '
             export HOME=/home/vncuser
             export XDG_CONFIG_HOME=/home/vncuser/.config
@@ -59,6 +63,13 @@ jobs:
             export XDG_CONFIG_HOME=/home/vncuser/.config
             vncserver -list
           '
+
+      - name: Diagnose VNC Session (optional)
+        run: |
+          echo "--- xstartup content ---"
+          cat /home/vncuser/.vnc/xstartup
+          echo "--- VNC log (first 50 lines) ---"
+          sudo tail -n 50 /home/vncuser/.vnc/*.log 2>/dev/null || echo "No log found"
 
       - name: Display Connection Details
         run: |
