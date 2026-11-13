@@ -25,17 +25,20 @@ jobs:
           echo "vncuser:vnc2025" | sudo chpasswd
           sudo adduser vncuser sudo
 
-          # Create BOTH ~/.vnc and ~/.config as vncuser
-          # ~/.vnc holds the legacy config; ~/.config is the migration target
+          # Pre-create BOTH legacy and XDG directories as vncuser
           sudo -H -u vncuser mkdir -p /home/vncuser/.vnc
-          sudo -H -u vncuser mkdir -p /home/vncuser/.config
+          sudo -H -u vncuser mkdir -p /home/vncuser/.config/tigervnc
 
-          # VNC password (max 8 chars — TigerVNC truncates silently beyond this)
+          # VNC password (max 8 chars)
           echo "vnc2025" | sudo -H -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.vnc/passwd'
           sudo chmod 600 /home/vncuser/.vnc/passwd
           sudo chown vncuser:vncuser /home/vncuser/.vnc/passwd
 
-          # xstartup that launches XFCE cleanly
+          # Also place password in the XDG path directly (skips migration)
+          sudo cp /home/vncuser/.vnc/passwd /home/vncuser/.config/tigervnc/passwd
+          sudo chown -R vncuser:vncuser /home/vncuser/.config
+
+          # xstartup (legacy path is still read)
           sudo tee /home/vncuser/.vnc/xstartup > /dev/null << 'EOF'
           #!/bin/sh
           unset SESSION_MANAGER
@@ -47,11 +50,14 @@ jobs:
 
       - name: Start VNC Server
         run: |
-          # -H forces $HOME=/home/vncuser so migration targets the right path
-          sudo -H -u vncuser vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+          # Force HOME and XDG_CONFIG_HOME explicitly for the vncserver process
+          sudo -u vncuser env \
+            HOME=/home/vncuser \
+            XDG_CONFIG_HOME=/home/vncuser/.config \
+            vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
           sleep 5
           echo "--- VNC server list ---"
-          sudo -H -u vncuser vncserver -list
+          sudo -u vncuser env HOME=/home/vncuser vncserver -list
 
       - name: Display Connection Details
         run: |
@@ -59,7 +65,6 @@ jobs:
           echo "IP Address : $(tailscale ip -4)"
           echo "Port       : 5901"
           echo "Password   : vnc2025"
-          echo "Note: VNC passwords are limited to 8 characters"
           echo "=============================================="
 
       - name: Keep Alive
