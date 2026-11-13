@@ -1,4 +1,4 @@
-name: macOS VNC via ngrok
+name: macOS VNC via Tailscale
 
 on:
   workflow_dispatch:
@@ -9,6 +9,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
       - name: Configure VNC Server and User
         run: |
@@ -22,17 +27,16 @@ jobs:
           sudo dscl . -create /Users/vncuser UniqueID 1001
           sudo dscl . -create /Users/vncuser PrimaryGroupID 80
           sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          
-          # Set the password for the vncuser account
           sudo dscl . -passwd /Users/vncuser ${{ secrets.VNC_USER_PASSWORD }}
           sudo createhomedir -c -u vncuser > /dev/null
 
-          # Enable VNC (Screen Sharing) for all users
+          # Enable Screen Sharing (VNC) for all users
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -allowAccessFor -allUsers -privs -all
-          
-          # Set the VNC-only legacy password
-          # This is required for some VNC clients
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -restart -agent -privs -all
+
+          # Set the legacy VNC-only password (for RealVNC Viewer when it asks only for a password)
           echo ${{ secrets.VNC_PASSWORD }} | perl -we '
             BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"}; 
             $_ = <>; chomp; s/^(.{8}).*/$1/; 
@@ -41,25 +45,18 @@ jobs:
             print "\n"
           ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt
 
-          # Restart and activate the ARD agent to apply settings
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
-
-      - name: Install and Start ngrok
+      - name: Verify VNC is listening
         run: |
-          brew install ngrok/ngrok/ngrok
-          ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          
-          # Start the TCP tunnel on port 5900 in the background
-          ngrok tcp 5900 --log=stdout > ngrok.log &
-          
-          # Wait for the tunnel to be established
-          sleep 10
-          
+          # macOS Screen Sharing listens on port 5900
+          sudo lsof -iTCP:5900 -sTCP:LISTEN || echo "VNC not listening yet — ARD may need a moment"
+
+      - name: Display Connection Details
+        run: |
           echo "================ VNC IS READY ================"
-          echo "Connection details from ngrok:"
-          grep -o 'tcp://[^ ]*' ngrok.log | head -1
-          echo "Use the address above with your VNC viewer."
+          echo "IP Address : $(tailscale ip -4)"
+          echo "Port       : 5900"
+          echo "Username   : vncuser (or leave blank if only password is asked)"
+          echo "Password   : use VNC_USER_PASSWORD or VNC_PASSWORD secret"
           echo "=============================================="
 
       - name: Prevent Display Sleep (Anti-Black Screen)
