@@ -25,39 +25,40 @@ jobs:
           echo "vncuser:vnc2025" | sudo chpasswd
           sudo adduser vncuser sudo
 
-          # Pre-create BOTH legacy and XDG directories as vncuser
-          sudo -H -u vncuser mkdir -p /home/vncuser/.vnc
+          # Do NOT create ~/.vnc – prevents the migration script from firing.
+          # Create the modern XDG path instead.
           sudo -H -u vncuser mkdir -p /home/vncuser/.config/tigervnc
 
-          # VNC password (max 8 chars)
-          echo "vnc2025" | sudo -H -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.vnc/passwd'
-          sudo chmod 600 /home/vncuser/.vnc/passwd
-          sudo chown vncuser:vncuser /home/vncuser/.vnc/passwd
+          # VNC password (max 8 chars) – write directly to XDG path
+          echo "vnc2025" | sudo -H -u vncuser bash -c 'vncpasswd -f > /home/vncuser/.config/tigervnc/passwd'
+          sudo chmod 600 /home/vncuser/.config/tigervnc/passwd
+          sudo chown vncuser:vncuser /home/vncuser/.config/tigervnc/passwd
 
-          # Also place password in the XDG path directly (skips migration)
-          sudo cp /home/vncuser/.vnc/passwd /home/vncuser/.config/tigervnc/passwd
-          sudo chown -R vncuser:vncuser /home/vncuser/.config
-
-          # xstartup (legacy path is still read)
-          sudo tee /home/vncuser/.vnc/xstartup > /dev/null << 'EOF'
+          # xstartup – also in XDG path
+          sudo tee /home/vncuser/.config/tigervnc/xstartup > /dev/null << 'EOF'
           #!/bin/sh
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
           exec startxfce4
           EOF
-          sudo chmod +x /home/vncuser/.vnc/xstartup
-          sudo chown vncuser:vncuser /home/vncuser/.vnc/xstartup
+          sudo chmod +x /home/vncuser/.config/tigervnc/xstartup
+          sudo chown vncuser:vncuser /home/vncuser/.config/tigervnc/xstartup
 
       - name: Start VNC Server
         run: |
-          # Force HOME and XDG_CONFIG_HOME explicitly for the vncserver process
-          sudo -u vncuser env \
-            HOME=/home/vncuser \
-            XDG_CONFIG_HOME=/home/vncuser/.config \
+          # Run as vncuser in a shell that explicitly sets HOME and XDG_CONFIG_HOME
+          sudo -u vncuser bash -c '
+            export HOME=/home/vncuser
+            export XDG_CONFIG_HOME=/home/vncuser/.config
             vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+          '
           sleep 5
           echo "--- VNC server list ---"
-          sudo -u vncuser env HOME=/home/vncuser vncserver -list
+          sudo -u vncuser bash -c '
+            export HOME=/home/vncuser
+            export XDG_CONFIG_HOME=/home/vncuser/.config
+            vncserver -list
+          '
 
       - name: Display Connection Details
         run: |
