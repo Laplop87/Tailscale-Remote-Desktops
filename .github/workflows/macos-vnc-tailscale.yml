@@ -1,0 +1,39 @@
+name: Pure macOS VNC via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-vnc:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+      - name: Enable Screen Sharing and Set VNC Password
+        run: |
+          # Enable Screen Sharing (VNC)
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -restart -agent -privs -all
+          
+          # Set VNC password for the runner user
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvnclegacy -vnclegacy yes \
+            -setvncpw -vncpw "MacVNC#2025" -restart -agent
+
+      - name: Display Connection Details
+        run: |
+          echo "================ VNC IS READY ================"
+          echo "IP Address: $(tailscale ip -4)"
+          echo "Port      : 5900"
+          echo "Password  : MacVNC#2025"
+          echo "=============================================="
+
+      - name: Keep Alive
+        run: sleep 21600 # 6 hours
